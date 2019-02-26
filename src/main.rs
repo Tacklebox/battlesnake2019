@@ -84,6 +84,13 @@ struct Snake {
     body: Vec<Coord>
 }
 
+#[allow(dead_code)]
+impl Snake {
+    fn len(&self) -> usize {
+        self.body.len()
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct Board {
     height: i32,
@@ -131,7 +138,21 @@ fn handle_move(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Err
         .from_err()
         .and_then(|state: StartMove| {
             println!("model: {:?}", state);
+            let StartMove { you: Snake { body: self_snake, .. }, board: Board { width, height, .. }, .. } = state;
+
+            if let Some(Coord { x, y }) = self_snake.get(0) {
+                if *y == 0 && *x != 0 {
+                    return Ok(HttpResponse::Ok().json(MoveResponse { Move: Moves::Left }));
+                }
+                if *x == 0 && *y != height - 1 {
+                    return Ok(HttpResponse::Ok().json(MoveResponse { Move: Moves::Down }));
+                }
+                if *x == width - 1 && *y != 0 {
+                    return Ok(HttpResponse::Ok().json(MoveResponse { Move: Moves::Up }));
+                }
+            }
             Ok(HttpResponse::Ok().json(MoveResponse { Move: Moves::Right }))
+
         })
         .responder()
 }
