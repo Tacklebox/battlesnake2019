@@ -1,0 +1,14 @@
+[package]
+name = "battlesnake2019"
+version = "0.1.0"
+authors = ["Maxwell A. Borden <maxwellborden@gmail.com>", "Graeme Turney"]
+edition = "2018"
+
+[dependencies]
+actix-web = "0.7.18"
+actix = "0.7.9"
+serde = "1.0.88"
+serde_derive = "1.0.88"
+serde_json = "1.0.38"
+futures = "0.1.25"
+env_logger = "0.6.0"
