@@ -11,6 +11,8 @@ use futures::Future;
 use rand::Rng;
 use serde_derive::{Deserialize, Serialize};
 
+#[macro_use]
+use lazy_static::lazy_static;
 
 //TODO: use clap or something to make a nicer interface for this
 static IP: &str = "127.0.0.1";
@@ -66,6 +68,19 @@ enum Moves {
     Down,
     Left,
     Right,
+}
+
+lazy_static! {
+    static ref PERMUTATIONS: Vec<Vec<Vec<Moves>>> = vec![
+        permutations(1, None),
+        permutations(2, None),
+        permutations(3, None),
+        permutations(4, None),
+        permutations(5, None),
+        permutations(6, None),
+        permutations(7, None),
+        permutations(8, None)
+    ];
 }
 
 fn permutations(num_snakes: i32, possible_actions: Option<Vec<Vec<Moves>>>) -> Vec<Vec<Moves>> {
@@ -273,8 +288,8 @@ struct GameState {
 impl GameState {
     #[allow(dead_code)]
     fn successors(&self) -> Vec<(GameState, u32)> {
-        let num_snakes = self.board.snakes.len() as i32;
-        let move_list = permutations(num_snakes, None);
+        let num_snakes = self.board.snakes.len();
+        let move_list = &PERMUTATIONS[num_snakes]; //permutations(num_snakes, None);
         move_list
             .into_iter()
             .map(|snakes_moves| move_cost(self.clone(), &apply_moves(snakes_moves, self.clone())))
