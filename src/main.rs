@@ -11,7 +11,6 @@ use futures::Future;
 use rand::Rng;
 use serde_derive::{Deserialize, Serialize};
 
-#[macro_use]
 use lazy_static::lazy_static;
 
 //TODO: use clap or something to make a nicer interface for this
@@ -113,16 +112,19 @@ fn permutations(num_snakes: i32, possible_actions: Option<Vec<Vec<Moves>>>) -> V
     }
 }
 
-fn step_move_head(snakes_moves: Vec<Moves>, game_state: &mut GameState) -> bool {
+fn step_move_head(snakes_moves: &[Moves], game_state: &mut GameState) -> bool {
     let mut flag: bool = false;
-    for (snake, snake_move) in game_state.board.snakes.iter_mut().zip(snakes_moves.into_iter()) {
-        let last_move = snake.last_move();
-        if last_move == Moves::Down && snake_move == Moves::Up
-            || last_move == Moves::Up && snake_move == Moves::Down
-            || last_move == Moves::Left && snake_move == Moves::Right
-            || last_move == Moves::Right && snake_move == Moves::Left {
+    for (snake, snake_move) in game_state.board.snakes.iter_mut().zip(snakes_moves.iter()) {
+        if game_state.turn > 1 {
+            let last_move = snake.last_move();
+            if (last_move == Moves::Down && *snake_move == Moves::Up)
+                || (last_move == Moves::Up && *snake_move == Moves::Down)
+                || (last_move == Moves::Left && *snake_move == Moves::Right)
+                || (last_move == Moves::Right && *snake_move == Moves::Left)
+            {
                 flag = true;
             }
+        }
         match snake_move {
             Moves::Up => snake.body.insert(
                 0,
@@ -197,10 +199,10 @@ fn step_check_for_death(game_state: &mut GameState) {
     let mut delete_map: Vec<usize> = vec![];
     let snake_list = game_state.board.snakes.clone();
     for (i, snake) in game_state.board.snakes.iter_mut().enumerate() {
+        let size = snake.len();
         let head = &snake.body[0];
-        let size = &snake.len();
         let collided = snake_list.clone().into_iter().any(|other_snake| {
-            head.eq(&other_snake.body[0]) && other_snake.len() > *size
+            head.eq(&other_snake.body[0]) && other_snake.len() > size
                 || other_snake
                     .body
                     .into_iter()
@@ -223,7 +225,7 @@ fn step_check_for_death(game_state: &mut GameState) {
     }
 }
 
-fn apply_moves(snakes_moves: Vec<Moves>, game_state: GameState) -> Option<GameState> {
+fn apply_moves(snakes_moves: &[Moves], game_state: GameState) -> Option<GameState> {
     let mut new_state: GameState = game_state;
     if step_move_head(snakes_moves, &mut new_state) {
         return None;
@@ -237,7 +239,7 @@ fn apply_moves(snakes_moves: Vec<Moves>, game_state: GameState) -> Option<GameSt
     Some(new_state)
 }
 
-fn move_cost(_state1: GameState, state2: &Option<GameState>) -> Option<(GameState, u32)> {
+fn move_cost(_state1: &GameState, state2: &Option<GameState>) -> Option<(GameState, u32)> {
     if let Some(state2) = state2 {
         if state2.board.snakes.iter().any(|s| state2.you.id == s.id) {
             return Some((state2.clone(), 1));
@@ -262,10 +264,10 @@ struct Snake {
 
 #[allow(dead_code)]
 impl Snake {
-    fn len(self) -> usize {
+    fn len(&self) -> usize {
         self.body.len()
     }
-    fn last_move(self) -> Moves {
+    fn last_move(&self) -> Moves {
         if self.body[1].x < self.body[0].x {
             Moves::Right
         } else if self.body[1].x > self.body[0].x {
@@ -304,8 +306,10 @@ impl GameState {
         let num_snakes = self.board.snakes.len();
         let move_list = &PERMUTATIONS[num_snakes]; //permutations(num_snakes, None);
         move_list
-            .into_iter()
-            .filter_map(|snakes_moves| move_cost(self.clone(), &apply_moves(snakes_moves, self.clone())))
+            .iter()
+            .filter_map(|snakes_moves| {
+                move_cost(self, &apply_moves(snakes_moves, self.clone()))
+            })
             .collect()
     }
     #[allow(dead_code)]
@@ -339,7 +343,7 @@ struct MoveResponse {
 
 fn random_color() -> String {
     let mut rng = rand::thread_rng();
-    format!("#{:X}", rng.gen_range(0,16_581_375))
+    format!("#{:X}", rng.gen_range(0, 16_581_375))
 }
 
 fn random_head() -> SnakeHead {
@@ -360,7 +364,6 @@ fn random_head() -> SnakeHead {
         _ => SnakeHead::Tongue,
     }
 }
-
 
 fn random_tail() -> SnakeTail {
     let mut rng = rand::thread_rng();
@@ -407,13 +410,13 @@ fn handle_move(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Err
                 |_| 1,
                 |p| {
                     turns_evaluated += 1;
-                    turns_evaluated > 2188 || p.success()
+                    turns_evaluated > 1000 || p.success()
                 },
             );
             if let Some((path, _)) = path_to_success {
-                println!("{:?}", which_move(state.clone(), &path[1]));
+                // println!("{:?}", path[1].you.last_move());
                 return Ok(HttpResponse::Ok().json(MoveResponse {
-                    Move: which_move(state, &path[1]),
+                    Move: path[1].you.last_move(),
                 }));
             }
             println!("None path, something went wrong");
