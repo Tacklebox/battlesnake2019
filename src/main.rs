@@ -221,6 +221,14 @@ fn which_move(state1: GameState, state2: &GameState) -> Moves {
     }
 }
 
+fn move_cost(_state1: GameState, state2: &GameState) -> (GameState, u32) {
+    if state2.board.snakes.iter().any(|s| state2.you.id == s.id) {
+        (state2.clone(), 1)
+    } else {
+        (state2.clone(), 100_000)
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 struct Coord {
     x: i32,
@@ -265,7 +273,7 @@ impl GameState {
         let move_list = permutations(num_snakes, None);
         move_list
             .into_iter()
-            .map(|snakes_moves| (apply_moves(snakes_moves, self.clone()), 1))
+            .map(|snakes_moves| move_cost(self.clone(), &apply_moves(snakes_moves, self.clone())))
             .collect()
     }
     #[allow(dead_code)]
@@ -296,7 +304,6 @@ struct MoveResponse {
 }
 
 fn handle_start(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Error>> {
-    println!("handle_start\n");
     req.json()
         .from_err()
         .and_then(|inital_state: GameState| {
@@ -311,11 +318,19 @@ fn handle_start(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Er
 }
 
 fn handle_move(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Error>> {
-    println!("handle_move\n\n");
     req.json()
         .from_err()
         .and_then(|state: GameState| {
-            let path_to_success = astar(&state, |p| p.successors(), |_| 1, |p| p.success());
+
+            let mut turns_evaluated = 0;
+
+            let path_to_success = astar(&state, |p| p.successors(), |_| {
+                    turns_evaluated += 1;
+                    if turns_evaluated > 1000 {
+                        panic!();
+                    }
+                    1
+            }, |p| p.success());
             if let Some((path, _)) = path_to_success {
                 println!("{:?}", which_move(state.clone(), &path[0]));
                 return Ok(HttpResponse::Ok().json(MoveResponse {
@@ -330,9 +345,9 @@ fn handle_move(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Err
 }
 
 fn main() {
-    ::std::env::set_var("RUST_LOG", "bs-log=info");
+    ::std::env::set_var("RUST_LOG", "battlesnake=info");
     env_logger::init();
-    let sys = actix::System::new("BattleSnake 2019");
+    let sys = actix::System::new("battlesnake");
 
     server::new(|| {
         App::new()
