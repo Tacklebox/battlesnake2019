@@ -8,12 +8,18 @@ use pathfinding::prelude::astar;
 
 use env_logger;
 use futures::Future;
+use rand::Rng;
 use serde_derive::{Deserialize, Serialize};
+
+#[macro_use]
+use lazy_static::lazy_static;
 
 //TODO: use clap or something to make a nicer interface for this
 static IP: &str = "127.0.0.1";
 static PORT: &str = "8008";
-static SNAKE_COLOR: &str = "#54A4E5";
+//static SNAKE_COLOR: &str = "#54A4E5";
+//static SNAKE_HEAD: SnakeHead = SnakeHead::Beluga;
+//static SNAKE_TAIL: SnakeTail = SnakeTail::Bolt;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -64,6 +70,19 @@ enum Moves {
     Right,
 }
 
+lazy_static! {
+    static ref PERMUTATIONS: Vec<Vec<Vec<Moves>>> = vec![
+        permutations(1, None),
+        permutations(2, None),
+        permutations(3, None),
+        permutations(4, None),
+        permutations(5, None),
+        permutations(6, None),
+        permutations(7, None),
+        permutations(8, None)
+    ];
+}
+
 fn permutations(num_snakes: i32, possible_actions: Option<Vec<Vec<Moves>>>) -> Vec<Vec<Moves>> {
     let all_moves = vec![Moves::Up, Moves::Down, Moves::Left, Moves::Right];
     let mut next_actions: Vec<Vec<Moves>> = vec![];
@@ -94,7 +113,7 @@ fn permutations(num_snakes: i32, possible_actions: Option<Vec<Vec<Moves>>>) -> V
     }
 }
 
-fn turn_step1(snakes_moves: Vec<Moves>, game_state: &mut GameState) -> bool {
+fn step_move_head(snakes_moves: Vec<Moves>, game_state: &mut GameState) -> bool {
     let mut flag: bool = false;
     for (snake, snake_move) in game_state.board.snakes.iter_mut().zip(snakes_moves.into_iter()) {
         let last_move = snake.last_move();
@@ -138,13 +157,13 @@ fn turn_step1(snakes_moves: Vec<Moves>, game_state: &mut GameState) -> bool {
     flag
 }
 
-fn turn_step2(game_state: &mut GameState) {
+fn step_reduce_health(game_state: &mut GameState) {
     for snake in game_state.board.snakes.iter_mut() {
         snake.health -= 1;
     }
 }
 
-fn turn_step3(game_state: &mut GameState) {
+fn step_check_ate_food(game_state: &mut GameState) {
     let mut delete_map: Vec<usize> = vec![];
     for snake in game_state.board.snakes.iter_mut() {
         for (i, food) in game_state.board.food.iter().enumerate() {
@@ -160,13 +179,13 @@ fn turn_step3(game_state: &mut GameState) {
     }
 }
 
-fn turn_step4(game_state: &mut GameState) {
+fn step_remove_tail(game_state: &mut GameState) {
     for snake in game_state.board.snakes.iter_mut() {
         snake.body.pop();
     }
 }
 
-fn turn_step5(game_state: &mut GameState) {
+fn step_add_body(game_state: &mut GameState) {
     for snake in game_state.board.snakes.iter_mut() {
         if game_state.turn > 1 && snake.health == 100 {
             snake.body.push(snake.body.last().cloned().unwrap())
@@ -174,7 +193,7 @@ fn turn_step5(game_state: &mut GameState) {
     }
 }
 
-fn turn_step6(game_state: &mut GameState) {
+fn step_check_for_death(game_state: &mut GameState) {
     let mut delete_map: Vec<usize> = vec![];
     let snake_list = game_state.board.snakes.clone();
     for (i, snake) in game_state.board.snakes.iter_mut().enumerate() {
@@ -206,14 +225,14 @@ fn turn_step6(game_state: &mut GameState) {
 
 fn apply_moves(snakes_moves: Vec<Moves>, game_state: GameState) -> Option<GameState> {
     let mut new_state: GameState = game_state;
-    if turn_step1(snakes_moves, &mut new_state) {
+    if step_move_head(snakes_moves, &mut new_state) {
         return None;
     }
-    turn_step2(&mut new_state);
-    turn_step3(&mut new_state);
-    turn_step4(&mut new_state);
-    turn_step5(&mut new_state);
-    turn_step6(&mut new_state);
+    step_reduce_health(&mut new_state);
+    step_check_ate_food(&mut new_state);
+    step_remove_tail(&mut new_state);
+    step_add_body(&mut new_state);
+    step_check_for_death(&mut new_state);
     new_state.fix_board_to_self();
     Some(new_state)
 }
@@ -282,8 +301,8 @@ struct GameState {
 impl GameState {
     #[allow(dead_code)]
     fn successors(&self) -> Vec<(GameState, u32)> {
-        let num_snakes = self.board.snakes.len() as i32;
-        let move_list = permutations(num_snakes, None);
+        let num_snakes = self.board.snakes.len();
+        let move_list = &PERMUTATIONS[num_snakes]; //permutations(num_snakes, None);
         move_list
             .into_iter()
             .filter_map(|snakes_moves| move_cost(self.clone(), &apply_moves(snakes_moves, self.clone())))
@@ -318,15 +337,59 @@ struct MoveResponse {
     Move: Moves,
 }
 
+fn random_color() -> String {
+    let mut rng = rand::thread_rng();
+    format!("#{:X}", rng.gen_range(0,16_581_375))
+}
+
+fn random_head() -> SnakeHead {
+    let mut rng = rand::thread_rng();
+    match rng.gen_range(0, 12) {
+        0 => SnakeHead::Beluga,
+        1 => SnakeHead::Bendr,
+        2 => SnakeHead::Dead,
+        3 => SnakeHead::Evil,
+        4 => SnakeHead::Fang,
+        5 => SnakeHead::Pixel,
+        6 => SnakeHead::Regular,
+        7 => SnakeHead::Safe,
+        8 => SnakeHead::SandWorm,
+        9 => SnakeHead::Shades,
+        10 => SnakeHead::Silly,
+        11 => SnakeHead::Smile,
+        _ => SnakeHead::Tongue,
+    }
+}
+
+
+fn random_tail() -> SnakeTail {
+    let mut rng = rand::thread_rng();
+    match rng.gen_range(0, 11) {
+        0 => SnakeTail::BlockBum,
+        1 => SnakeTail::Bolt,
+        2 => SnakeTail::Curled,
+        3 => SnakeTail::FatRattle,
+        4 => SnakeTail::Freckled,
+        5 => SnakeTail::Hook,
+        6 => SnakeTail::Pixel,
+        7 => SnakeTail::Regular,
+        8 => SnakeTail::RoundBum,
+        9 => SnakeTail::Sharp,
+        10 => SnakeTail::Skinny,
+        _ => SnakeTail::SmallRattle,
+    }
+}
+
 fn handle_start(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Error>> {
     req.json()
         .from_err()
         .and_then(|inital_state: GameState| {
             println!("Game Start: {:?}", inital_state);
+
             Ok(HttpResponse::Ok().json(StartResponse {
-                color: String::from(SNAKE_COLOR),
-                head_type: SnakeHead::Safe,
-                tail_type: SnakeTail::Hook,
+                color: random_color(),
+                head_type: random_head(),
+                tail_type: random_tail(),
             }))
         })
         .responder()
