@@ -55,7 +55,7 @@ struct Game {
     id: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Eq, PartialEq, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "kebab-case")]
 enum Moves {
     Up,
@@ -94,9 +94,17 @@ fn permutations(num_snakes: i32, possible_actions: Option<Vec<Vec<Moves>>>) -> V
     }
 }
 
-fn turn_step1(snakes_moves: Vec<Moves>, game_state: &mut GameState) {
-    for (i, snake) in game_state.board.snakes.iter_mut().enumerate() {
-        match snakes_moves[i] {
+fn turn_step1(snakes_moves: Vec<Moves>, game_state: &mut GameState) -> bool {
+    let mut flag: bool = false;
+    for (snake, snake_move) in game_state.board.snakes.iter_mut().zip(snakes_moves.into_iter()) {
+        let last_move = snake.last_move();
+        if last_move == Moves::Down && snake_move == Moves::Up
+            || last_move == Moves::Up && snake_move == Moves::Down
+            || last_move == Moves::Left && snake_move == Moves::Right
+            || last_move == Moves::Right && snake_move == Moves::Left {
+                flag = true;
+            }
+        match snake_move {
             Moves::Up => snake.body.insert(
                 0,
                 Coord {
@@ -127,6 +135,7 @@ fn turn_step1(snakes_moves: Vec<Moves>, game_state: &mut GameState) {
             ),
         }
     }
+    flag
 }
 
 fn turn_step2(game_state: &mut GameState) {
@@ -195,38 +204,27 @@ fn turn_step6(game_state: &mut GameState) {
     }
 }
 
-fn apply_moves(snakes_moves: Vec<Moves>, game_state: GameState) -> GameState {
+fn apply_moves(snakes_moves: Vec<Moves>, game_state: GameState) -> Option<GameState> {
     let mut new_state: GameState = game_state;
-    turn_step1(snakes_moves, &mut new_state);
+    if turn_step1(snakes_moves, &mut new_state) {
+        return None;
+    }
     turn_step2(&mut new_state);
     turn_step3(&mut new_state);
     turn_step4(&mut new_state);
     turn_step5(&mut new_state);
     turn_step6(&mut new_state);
     new_state.fix_board_to_self();
-    new_state
+    Some(new_state)
 }
 
-fn which_move(state1: GameState, state2: &GameState) -> Moves {
-    let head1 = &state1.you.body[0];
-    let head2 = &state2.you.body[0];
-    if head1.x < head2.x {
-        Moves::Right
-    } else if head1.x > head2.x {
-        Moves::Left
-    } else if head1.y < head2.y {
-        Moves::Down
-    } else {
-        Moves::Up
+fn move_cost(_state1: GameState, state2: &Option<GameState>) -> Option<(GameState, u32)> {
+    if let Some(state2) = state2 {
+        if state2.board.snakes.iter().any(|s| state2.you.id == s.id) {
+            return Some((state2.clone(), 1));
+        }
     }
-}
-
-fn move_cost(_state1: GameState, state2: &GameState) -> (GameState, u32) {
-    if state2.board.snakes.iter().any(|s| state2.you.id == s.id) {
-        (state2.clone(), 1)
-    } else {
-        (state2.clone(), 100_000)
-    }
+    None
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
@@ -245,8 +243,23 @@ struct Snake {
 
 #[allow(dead_code)]
 impl Snake {
-    fn len(&self) -> usize {
+    fn len(self) -> usize {
         self.body.len()
+    }
+    fn last_move(self) -> Moves {
+        if self.body[1].x < self.body[0].x {
+            Moves::Right
+        } else if self.body[1].x > self.body[0].x {
+            Moves::Left
+        } else if self.body[1].y < self.body[0].y {
+            Moves::Down
+        } else if self.body[1].y > self.body[0].y {
+            Moves::Up
+        } else if self.body[1].y == self.body[0].y && self.body[1].x == self.body[0].x {
+            panic!();
+        } else {
+            unreachable!();
+        }
     }
 }
 
@@ -273,12 +286,14 @@ impl GameState {
         let move_list = permutations(num_snakes, None);
         move_list
             .into_iter()
-            .map(|snakes_moves| move_cost(self.clone(), &apply_moves(snakes_moves, self.clone())))
+            .filter_map(|snakes_moves| move_cost(self.clone(), &apply_moves(snakes_moves, self.clone())))
             .collect()
     }
     #[allow(dead_code)]
     fn success(&self) -> bool {
-        self.board.snakes.len() == 1 && self.board.snakes[0] == self.you
+        self.board.snakes.len() == 1
+            && self.board.snakes[0] == self.you
+            && self.you.len() as i32 == self.board.width * self.board.height
     }
     #[allow(dead_code)]
     fn fix_board_to_self(&mut self) {
@@ -321,20 +336,21 @@ fn handle_move(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Err
     req.json()
         .from_err()
         .and_then(|state: GameState| {
-
             let mut turns_evaluated = 0;
 
-            let path_to_success = astar(&state, |p| p.successors(), |_| {
+            let path_to_success = astar(
+                &state,
+                |p| p.successors(),
+                |_| 1,
+                |p| {
                     turns_evaluated += 1;
-                    if turns_evaluated > 1000 {
-                        panic!();
-                    }
-                    1
-            }, |p| p.success());
+                    turns_evaluated > 2188 || p.success()
+                },
+            );
             if let Some((path, _)) = path_to_success {
-                println!("{:?}", which_move(state.clone(), &path[0]));
+                println!("{:?}", which_move(state.clone(), &path[1]));
                 return Ok(HttpResponse::Ok().json(MoveResponse {
-                    Move: which_move(state, &path[0]),
+                    Move: which_move(state, &path[1]),
                 }));
             }
             println!("None path, something went wrong");
