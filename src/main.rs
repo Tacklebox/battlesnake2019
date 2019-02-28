@@ -4,7 +4,7 @@ use actix_web::{
     http, middleware, server, App, AsyncResponder, Error, HttpMessage, HttpRequest, HttpResponse,
 };
 
-use pathfinding::prelude::{astar};
+use pathfinding::prelude::astar;
 
 use env_logger;
 use futures::Future;
@@ -146,14 +146,14 @@ fn turn_step3(game_state: &mut GameState) {
         }
     }
 
-    for i in delete_map.into_iter() {
+    for i in delete_map.into_iter().rev() {
         game_state.board.food.remove(i);
     }
 }
 
 fn turn_step4(game_state: &mut GameState) {
     for snake in game_state.board.snakes.iter_mut() {
-        snake.body.remove(snake.body.len() - 1);
+        snake.body.pop();
     }
 }
 
@@ -167,19 +167,31 @@ fn turn_step5(game_state: &mut GameState) {
 
 fn turn_step6(game_state: &mut GameState) {
     let mut delete_map: Vec<usize> = vec![];
+    let snake_list = game_state.board.snakes.clone();
     for (i, snake) in game_state.board.snakes.iter_mut().enumerate() {
         let head = &snake.body[0];
+        let size = &snake.len();
+        let collided = snake_list.clone().into_iter().any(|other_snake| {
+            head.eq(&other_snake.body[0]) && other_snake.len() > *size
+                || other_snake
+                    .body
+                    .into_iter()
+                    .skip(1)
+                    .any(|segment| head.eq(&segment))
+        });
         if head.x >= game_state.board.width
             || head.x < 0
             || head.y >= game_state.board.height
             || head.y < 0
+            || snake.health == 0
+            || collided
         {
             delete_map.push(i);
         }
     }
 
-    for i in delete_map.into_iter() {
-        game_state.board.food.remove(i);
+    for i in delete_map.into_iter().rev() {
+        game_state.board.snakes.remove(i);
     }
 }
 
@@ -305,7 +317,10 @@ fn handle_move(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Err
         .and_then(|state: GameState| {
             let path_to_success = astar(&state, |p| p.successors(), |_| 1, |p| p.success());
             if let Some((path, _)) = path_to_success {
-                return Ok(HttpResponse::Ok().json(MoveResponse { Move: which_move(state, &path[0]) }));
+                println!("{:?}", which_move(state.clone(), &path[0]));
+                return Ok(HttpResponse::Ok().json(MoveResponse {
+                    Move: which_move(state, &path[0]),
+                }));
             }
             println!("None path, something went wrong");
 
