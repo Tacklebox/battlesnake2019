@@ -176,8 +176,8 @@ fn step_check_ate_food(game_state: &mut GameState) {
         }
     }
 
-    for i in delete_map.into_iter().rev() {
-        game_state.board.food.remove(i);
+    for i in delete_map.iter().rev() {
+        game_state.board.food.remove(*i);
     }
 }
 
@@ -197,15 +197,16 @@ fn step_add_body(game_state: &mut GameState) {
 
 fn step_check_for_death(game_state: &mut GameState) {
     let mut delete_map: Vec<usize> = vec![];
+
     let snake_list = game_state.board.snakes.clone();
     for (i, snake) in game_state.board.snakes.iter_mut().enumerate() {
         let size = snake.len();
         let head = &snake.body[0];
-        let collided = snake_list.clone().into_iter().any(|other_snake| {
+        let collided = snake_list.iter().any(|other_snake| {
             head.eq(&other_snake.body[0]) && other_snake.len() > size
                 || other_snake
                     .body
-                    .into_iter()
+                    .iter()
                     .skip(1)
                     .any(|segment| head.eq(&segment))
         });
@@ -220,8 +221,8 @@ fn step_check_for_death(game_state: &mut GameState) {
         }
     }
 
-    for i in delete_map.into_iter().rev() {
-        game_state.board.snakes.remove(i);
+    for i in delete_map.iter().rev() {
+        game_state.board.snakes.remove(*i);
     }
 }
 
@@ -239,10 +240,10 @@ fn apply_moves(snakes_moves: &[Moves], game_state: GameState) -> Option<GameStat
     Some(new_state)
 }
 
-fn move_cost(_state1: &GameState, state2: &Option<GameState>) -> Option<(GameState, u32)> {
-    if let Some(state2) = state2 {
-        if state2.board.snakes.iter().any(|s| state2.you.id == s.id) {
-            return Some((state2.clone(), 1));
+fn move_cost(state: Option<GameState>) -> Option<(GameState, u32)> {
+    if let Some(state) = state {
+        if state.board.snakes.iter().any(|s| state.you.id == s.id) {
+            return Some((state, 1));
         }
     }
     None
@@ -307,9 +308,7 @@ impl GameState {
         let move_list = &PERMUTATIONS[num_snakes]; //permutations(num_snakes, None);
         move_list
             .iter()
-            .filter_map(|snakes_moves| {
-                move_cost(self, &apply_moves(snakes_moves, self.clone()))
-            })
+            .filter_map(|snakes_moves| move_cost(apply_moves(snakes_moves, self.clone())))
             .collect()
     }
     #[allow(dead_code)]
@@ -410,7 +409,7 @@ fn handle_move(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Err
                 |_| 1,
                 |p| {
                     turns_evaluated += 1;
-                    turns_evaluated > 1000 || p.success()
+                    turns_evaluated > 10_000 || p.success()
                 },
             );
             if let Some((path, _)) = path_to_success {
