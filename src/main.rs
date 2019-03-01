@@ -175,7 +175,6 @@ fn step_check_ate_food(game_state: &mut GameState) {
             }
         }
     }
-    // println!("Food: {:?} ====== {:?}", game_state.board.food, delete_map);
     delete_map.sort();
     delete_map.dedup();
     for i in delete_map.iter().rev() {
@@ -222,7 +221,6 @@ fn step_check_for_death(game_state: &mut GameState) {
             delete_map.push(i);
         }
     }
-    // println!("Death");
     for i in delete_map.iter().rev() {
         game_state.board.snakes.remove(*i);
     }
@@ -245,7 +243,18 @@ fn apply_moves(snakes_moves: &[Moves], game_state: GameState) -> Option<GameStat
 fn move_cost(state: Option<GameState>) -> Option<(GameState, u32)> {
     if let Some(state) = state {
         if state.board.snakes.iter().any(|s| state.you.id == s.id) {
-            return Some((state, 1));
+            let head = &state.you.body[0];
+            let mut cost = 1;
+            if state.you.health < 70 {
+                cost += 2 * (75 - state.you.health);
+            }
+            if head.x == 0 || head.x == state.board.width - 1 {
+                cost += 10;
+            }
+            if head.y == 0 || head.y == state.board.width - 1 {
+                cost += 10;
+            }
+            return Some((state, cost as u32));
         }
     }
     None
@@ -387,8 +396,7 @@ fn random_tail() -> SnakeTail {
 fn handle_start(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Error>> {
     req.json()
         .from_err()
-        .and_then(|inital_state: GameState| {
-            println!("Game Start: {:?}", inital_state);
+        .and_then(|_inital_state: GameState| {
             Ok(HttpResponse::Ok().json(StartResponse {
                 color: random_color(),
                 head_type: random_head(),
@@ -410,24 +418,23 @@ fn handle_move(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Err
                 |_| 1,
                 |p| {
                     turns_evaluated += 1;
-                    turns_evaluated > 1001 || p.success()
+                    turns_evaluated > 10 || p.success()
                 },
             );
             if let Some((path, _)) = path_to_success {
-                // println!("{:?}", path[1].you.last_move());
                 return Ok(HttpResponse::Ok().json(MoveResponse {
                     Move: path[1].you.last_move(),
                 }));
             }
-            println!("None path, something went wrong");
 
+            //TODO: last ditch effort here for when we realize we are trapped
             Ok(HttpResponse::Ok().json(MoveResponse { Move: Moves::Right }))
         })
         .responder()
 }
 
 fn main() {
-    ::std::env::set_var("RUST_LOG", "battlesnake=info");
+    std::env::set_var("RUST_LOG", "actix_web=info");
     env_logger::init();
     let sys = actix::System::new("battlesnake");
 

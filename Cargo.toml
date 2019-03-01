@@ -1,5 +1,5 @@
 [package]
-name = "battlesnake2019"
+name = "snek"
 version = "0.1.0"
 authors = ["Maxwell A. Borden <maxwellborden@gmail.com>", "Graeme Turney"]
 edition = "2018"
@@ -15,3 +15,6 @@ env_logger = "0.6.0"
 pathfinding = "1.1.12"
 rand = "0.6.5"
 lazy_static = "1.3.0"
+
+[profile.release]
+debug = true
