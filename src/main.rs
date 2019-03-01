@@ -259,13 +259,13 @@ fn search_depth_to_turns(num_snakes: usize, desired_depth: usize) -> usize {
 fn backup_logic(state: GameState) -> Moves {
     let head = &state.you.body[0];
 
-    if head.x <= 0 {
+    if head.x <= 0 && head.y > 0 {
         return Moves::Up;
-    } else if head.y <= 0 {
+    } else if head.y <= 0 && head.x < state.board.width - 1 {
         return Moves::Right;
-    } else if head.x >= state.board.width {
+    } else if head.x >= state.board.width - 1 && head.y < state.board.height - 1 {
         return Moves::Down;
-    } else if head.y >= state.board.height {
+    } else if head.y >= state.board.height - 1 && head.x > 0 {
         return Moves::Left;
     }
 
