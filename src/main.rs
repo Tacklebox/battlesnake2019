@@ -175,7 +175,8 @@ fn step_check_ate_food(game_state: &mut GameState) {
             }
         }
     }
-
+    println!("Food: {:?} ====== {:?}", game_state.board.food, delete_map);
+    delete_map.sort();
     for i in delete_map.iter().rev() {
         game_state.board.food.remove(*i);
     }
@@ -220,7 +221,7 @@ fn step_check_for_death(game_state: &mut GameState) {
             delete_map.push(i);
         }
     }
-
+    println!("Death");
     for i in delete_map.iter().rev() {
         game_state.board.snakes.remove(*i);
     }
@@ -409,7 +410,7 @@ fn handle_move(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Err
                 |_| 1,
                 |p| {
                     turns_evaluated += 1;
-                    turns_evaluated > 10_000 || p.success()
+                    turns_evaluated > 100 || p.success()
                 },
             );
             if let Some((path, _)) = path_to_success {
