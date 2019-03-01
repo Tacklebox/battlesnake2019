@@ -16,9 +16,9 @@ use lazy_static::lazy_static;
 //TODO: use clap or something to make a nicer interface for this
 static IP: &str = "0.0.0.0";
 static PORT: &str = "8008";
-//static SNAKE_COLOR: &str = "#54A4E5";
-//static SNAKE_HEAD: SnakeHead = SnakeHead::Beluga;
-//static SNAKE_TAIL: SnakeTail = SnakeTail::Bolt;
+//static SNAKE_COLOR: &str = "#51EBB0";
+//static SNAKE_HEAD: SnakeHead = SnakeHead::Evil;
+//static SNAKE_TAIL: SnakeTail = SnakeTail::SmallRattle;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -251,6 +251,27 @@ fn move_cost(state: Option<GameState>) -> Option<(GameState, u32)> {
     None
 }
 
+fn search_depth_to_turns(num_snakes: usize, desired_depth: usize) -> usize {
+    let turns: usize = (num_snakes ^ 4) * desired_depth;
+    turns
+}
+
+fn backup_logic(state: GameState) -> Moves {
+    let head = &state.you.body[0];
+
+    if head.x <= 0 {
+        return Moves::Up;
+    } else if head.y <= 0 {
+        return Moves::Right;
+    } else if head.x >= state.board.width {
+        return Moves::Down;
+    } else if head.y >= state.board.height {
+        return Moves::Left;
+    }
+
+    Moves::Up
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 struct Coord {
     x: i32,
@@ -390,19 +411,22 @@ fn handle_start(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Er
         .and_then(|inital_state: GameState| {
             println!("Game Start: {:?}", inital_state);
             Ok(HttpResponse::Ok().json(StartResponse {
-                color: random_color(),
-                head_type: random_head(),
-                tail_type: random_tail(),
+                color: random_color(), // SNAKE_COLOUR,
+                head_type: random_head(), // SNAKE_HEAD,
+                tail_type: random_tail(), // SNAKE_TAIL,
             }))
         })
         .responder()
 }
+
 
 fn handle_move(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Error>> {
     req.json()
         .from_err()
         .and_then(|state: GameState| {
             let mut turns_evaluated = 0;
+            let num_snakes = state.board.snakes.len();
+            let desired_depth = 4;
 
             let path_to_success = astar(
                 &state,
@@ -410,18 +434,18 @@ fn handle_move(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Err
                 |_| 1,
                 |p| {
                     turns_evaluated += 1;
-                    turns_evaluated > 1001 || p.success()
+                    turns_evaluated > search_depth_to_turns(num_snakes, desired_depth) || p.success()
                 },
             );
             if let Some((path, _)) = path_to_success {
-                // println!("{:?}", path[1].you.last_move());
+                println!("{:?}", path[1].you.last_move());
                 return Ok(HttpResponse::Ok().json(MoveResponse {
                     Move: path[1].you.last_move(),
                 }));
             }
-            println!("None path, something went wrong");
+            println!("None path, something went wrong, sending backup move");
 
-            Ok(HttpResponse::Ok().json(MoveResponse { Move: Moves::Right }))
+            Ok(HttpResponse::Ok().json(MoveResponse { Move: backup_logic(state) }))
         })
         .responder()
 }
