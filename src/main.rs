@@ -14,7 +14,7 @@ use serde_derive::{Deserialize, Serialize};
 use lazy_static::lazy_static;
 
 //TODO: use clap or something to make a nicer interface for this
-static IP: &str = "127.0.0.1";
+static IP: &str = "0.0.0.0";
 static PORT: &str = "8008";
 //static SNAKE_COLOR: &str = "#54A4E5";
 //static SNAKE_HEAD: SnakeHead = SnakeHead::Beluga;
@@ -167,16 +167,17 @@ fn step_reduce_health(game_state: &mut GameState) {
 
 fn step_check_ate_food(game_state: &mut GameState) {
     let mut delete_map: Vec<usize> = vec![];
-    for snake in game_state.board.snakes.iter_mut() {
-        for (i, food) in game_state.board.food.iter().enumerate() {
+    for (i, food) in game_state.board.food.iter().enumerate() {
+        for snake in game_state.board.snakes.iter_mut() {
             if snake.body[0] == *food {
                 snake.health = 100;
                 delete_map.push(i);
             }
         }
     }
-    println!("Food: {:?} ====== {:?}", game_state.board.food, delete_map);
+    // println!("Food: {:?} ====== {:?}", game_state.board.food, delete_map);
     delete_map.sort();
+    delete_map.dedup();
     for i in delete_map.iter().rev() {
         game_state.board.food.remove(*i);
     }
@@ -221,7 +222,7 @@ fn step_check_for_death(game_state: &mut GameState) {
             delete_map.push(i);
         }
     }
-    println!("Death");
+    // println!("Death");
     for i in delete_map.iter().rev() {
         game_state.board.snakes.remove(*i);
     }
@@ -388,7 +389,6 @@ fn handle_start(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Er
         .from_err()
         .and_then(|inital_state: GameState| {
             println!("Game Start: {:?}", inital_state);
-
             Ok(HttpResponse::Ok().json(StartResponse {
                 color: random_color(),
                 head_type: random_head(),
@@ -410,7 +410,7 @@ fn handle_move(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Err
                 |_| 1,
                 |p| {
                     turns_evaluated += 1;
-                    turns_evaluated > 100 || p.success()
+                    turns_evaluated > 1001 || p.success()
                 },
             );
             if let Some((path, _)) = path_to_success {
