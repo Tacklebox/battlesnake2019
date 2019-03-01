@@ -1,12 +1,8 @@
 #![deny(warnings)]
 
-use actix_web::{
-    http, middleware, server, App, AsyncResponder, Error, HttpMessage, HttpRequest, HttpResponse,
-};
-
 use pathfinding::prelude::astar;
 
-use env_logger;
+use tiny_http;
 use futures::Future;
 use rand::Rng;
 use serde_derive::{Deserialize, Serialize};
@@ -458,27 +454,14 @@ fn handle_move(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Err
 }
 
 fn main() {
-    std::env::set_var("RUST_LOG", "actix_web=info");
-    env_logger::init();
-    let sys = actix::System::new("battlesnake");
-
-    server::new(|| {
-        App::new()
-            .middleware(middleware::Logger::default())
-            .route("/ping", http::Method::POST, |_: HttpRequest| {
-                HttpResponse::Ok()
-            })
-            .route("/end", http::Method::POST, |_: HttpRequest| {
-                HttpResponse::Ok()
-            })
-            .resource("/start", |r| r.method(http::Method::POST).f(handle_start))
-            .resource("/move", |r| r.method(http::Method::POST).f(handle_move))
-    })
-    .bind(format!("{}:{}", IP, PORT))
-    .unwrap()
-    .shutdown_timeout(1)
-    .start();
-
-    println!("Started http server: {}:{}", IP, PORT);
-    let _ = sys.run();
+    let server = tiny_http::Server::http(format!("{}:{}", IP, PORT)).unwrap();
+    loop {
+        let request = match server.try_recv() {
+            Ok(Some(rq)) => rq,
+            _ => break
+        };
+        if request.headers().iter().any(|header| header.field == tiny_http::HeaderField::from_bytes(&b"Content-Type"[..]).unwrap() && header.value == "application/json") {
+            break
+        }
+    }
 }
