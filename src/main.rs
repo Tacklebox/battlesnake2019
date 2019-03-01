@@ -71,6 +71,7 @@ enum Moves {
 
 lazy_static! {
     static ref PERMUTATIONS: Vec<Vec<Vec<Moves>>> = vec![
+        vec![],
         permutations(1, None),
         permutations(2, None),
         permutations(3, None),
@@ -237,9 +238,15 @@ fn apply_moves(snakes_moves: &[Moves], game_state: GameState) -> Option<GameStat
     step_add_body(&mut new_state);
     step_check_for_death(&mut new_state);
     new_state.fix_board_to_self();
-    Some(new_state)
+    new_state.turn += 1;
+    if new_state.board.snakes.iter().any(|s| new_state.you.id == s.id) {
+        Some(new_state)
+    } else {
+        None
+    }
 }
 
+#[allow(dead_code)]
 fn move_cost(state: Option<GameState>) -> Option<(GameState, u32)> {
     if let Some(state) = state {
         if state.board.snakes.iter().any(|s| state.you.id == s.id) {
@@ -258,27 +265,6 @@ fn move_cost(state: Option<GameState>) -> Option<(GameState, u32)> {
         }
     }
     None
-}
-
-fn search_depth_to_turns(num_snakes: usize, desired_depth: usize) -> usize {
-    let turns: usize = (num_snakes ^ 4) * desired_depth;
-    turns
-}
-
-fn backup_logic(state: GameState) -> Moves {
-    let head = &state.you.body[0];
-
-    if head.x <= 0 && head.y > 0 {
-        return Moves::Up;
-    } else if head.y <= 0 && head.x < state.board.width - 1 {
-        return Moves::Right;
-    } else if head.x >= state.board.width - 1 && head.y < state.board.height - 1 {
-        return Moves::Down;
-    } else if head.y >= state.board.height - 1 && head.x > 0 {
-        return Moves::Left;
-    }
-
-    Moves::Up
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
@@ -340,12 +326,19 @@ struct GameStateNode {
     cost: i32,
 }
 
-fn build_tree(state: &GameStateNode, depth: i32) {
+fn build_tree(state: &mut GameStateNode, depth: i32) {
     if depth > 1 {
-        if let Some(children) = state.children {
-            children.iter().map(|child_state| build_tree(child_state, depth - 1));
+        if let Some(children) = &mut state.children {
+            for child_state in children.iter_mut() {
+                build_tree(child_state, depth - 1)
+            };
         } else {
-            state.children = Some(state.game_state.successors().iter().map(|new_state| GameStateNode { game_state: *new_state, children: None, cost: 0}).collect());
+            let successors = state.game_state.successors();
+            state.children = Some(successors.iter().map(|new_state| {
+                let mut new_child = GameStateNode { game_state: new_state.clone(), children: None, cost: 0};
+                build_tree(&mut new_child, depth -1);
+                new_child
+            }).collect());
         }
     }
 }
@@ -449,30 +442,36 @@ fn handle_move(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Err
     req.json()
         .from_err()
         .and_then(|state: GameState| {
+            let desired_depth = 7;
+            let turn = state.turn;
             let num_snakes = state.board.snakes.len();
-            let desired_depth = 4;
-
+            let _board_size = state.board.width * state.board.height;
             let mut game_root = GameStateNode {game_state: state, children: None, cost: 0};
-            build_tree(&game_root, desired_depth);
+            build_tree(&mut game_root, desired_depth);
 
             let path_to_success = astar(
                 &game_root,
-                |p| match p.children {
-                    Some(children) => children.iter().map(|child| (*child, child.cost)).collect(),
+                |p| match &p.children {
+                    Some(children) => children.iter().map(|child| (child.clone(), child.cost)).collect(),
                     None => vec![]
                 },
                 |_| 1,
-                |p| p.success(),
+                |p| if num_snakes == 1 {
+                    p.game_state.turn == turn + desired_depth -1
+                    // p.game_state.you.len() == board_size as usize
+                } else {
+                    p.game_state.turn == turn + desired_depth - 1
+                }
                 );
 
             if let Some((path, _)) = path_to_success {
-                println!("{:?}", path[1].game_state.you.last_move());
                 return Ok(HttpResponse::Ok().json(MoveResponse {
                     Move: path[1].game_state.you.last_move(),
                 }));
             }
 
-            Ok(HttpResponse::Ok().json(MoveResponse { Move: backup_logic(state) }))
+            println!("Pathfinding failed");
+            Ok(HttpResponse::Ok().json(MoveResponse { Move: Moves::Right }))
         })
         .responder()
 }
