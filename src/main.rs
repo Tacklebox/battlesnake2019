@@ -333,14 +333,31 @@ struct GameState {
     you: Snake,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+struct GameStateNode {
+    game_state: GameState,
+    children: Option<Vec<GameStateNode>>,
+    cost: i32,
+}
+
+fn build_tree(state: &GameStateNode, depth: i32) {
+    if depth > 1 {
+        if let Some(children) = state.children {
+            children.iter().map(|child_state| build_tree(child_state, depth - 1));
+        } else {
+            state.children = Some(state.game_state.successors().iter().map(|new_state| GameStateNode { game_state: *new_state, children: None, cost: 0}).collect());
+        }
+    }
+}
+
 impl GameState {
     #[allow(dead_code)]
-    fn successors(&self) -> Vec<(GameState, u32)> {
+    fn successors(&self) -> Vec<GameState> {
         let num_snakes = self.board.snakes.len();
         let move_list = &PERMUTATIONS[num_snakes]; //permutations(num_snakes, None);
         move_list
             .iter()
-            .filter_map(|snakes_moves| move_cost(apply_moves(snakes_moves, self.clone())))
+            .filter_map(|snakes_moves| apply_moves(snakes_moves, self.clone()))
             .collect()
     }
     #[allow(dead_code)]
@@ -432,23 +449,26 @@ fn handle_move(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Err
     req.json()
         .from_err()
         .and_then(|state: GameState| {
-            let mut turns_evaluated = 0;
             let num_snakes = state.board.snakes.len();
             let desired_depth = 4;
 
+            let mut game_root = GameStateNode {game_state: state, children: None, cost: 0};
+            build_tree(&game_root, desired_depth);
+
             let path_to_success = astar(
-                &state,
-                |p| p.successors(),
-                |_| 1,
-                |p| {
-                    turns_evaluated += 1;
-                    turns_evaluated > search_depth_to_turns(num_snakes, desired_depth) || p.success()
+                &game_root,
+                |p| match p.children {
+                    Some(children) => children.iter().map(|child| (*child, child.cost)).collect(),
+                    None => vec![]
                 },
-            );
+                |_| 1,
+                |p| p.success(),
+                );
+
             if let Some((path, _)) = path_to_success {
-                println!("{:?}", path[1].you.last_move());
+                println!("{:?}", path[1].game_state.you.last_move());
                 return Ok(HttpResponse::Ok().json(MoveResponse {
-                    Move: path[1].you.last_move(),
+                    Move: path[1].game_state.you.last_move(),
                 }));
             }
 
