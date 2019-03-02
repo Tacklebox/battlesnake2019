@@ -247,24 +247,19 @@ fn apply_moves(snakes_moves: &[Moves], game_state: GameState) -> Option<GameStat
 }
 
 #[allow(dead_code)]
-fn move_cost(state: Option<GameState>) -> Option<(GameState, u32)> {
-    if let Some(state) = state {
-        if state.board.snakes.iter().any(|s| state.you.id == s.id) {
-            let head = &state.you.body[0];
-            let mut cost = 1;
-            if state.you.health < 70 {
-                cost += 2 * (75 - state.you.health);
-            }
-            if head.x == 0 || head.x == state.board.width - 1 {
-                cost += 10;
-            }
-            if head.y == 0 || head.y == state.board.width - 1 {
-                cost += 10;
-            }
-            return Some((state, cost as u32));
-        }
+fn move_cost(state: &GameState) -> i32 {
+    let head = &state.you.body[0];
+    let mut cost = 1;
+    if state.you.health < 70 {
+        cost += 2 * (75 - state.you.health);
     }
-    None
+    if head.x == 0 || head.x == state.board.width - 1 {
+        cost += 10;
+    }
+    if head.y == 0 || head.y == state.board.width - 1 {
+        cost += 10;
+    }
+    cost
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
@@ -335,12 +330,16 @@ fn build_tree(state: &mut GameStateNode, depth: i32) {
         } else {
             let successors = state.game_state.successors();
             state.children = Some(successors.iter().map(|new_state| {
-                let mut new_child = GameStateNode { game_state: new_state.clone(), children: None, cost: 0};
-                build_tree(&mut new_child, depth -1);
+                let cost = move_cost(new_state);
+                let mut new_child = GameStateNode { game_state: new_state.clone(), children: None, cost };
+                build_tree(&mut new_child, depth - 1);
                 new_child
             }).collect());
         }
     }
+}
+
+fn evaluate_costs(_state: &mut GameStateNode) {
 }
 
 impl GameState {
@@ -442,12 +441,13 @@ fn handle_move(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Err
     req.json()
         .from_err()
         .and_then(|state: GameState| {
-            let desired_depth = 7;
             let turn = state.turn;
             let num_snakes = state.board.snakes.len();
+            let desired_depth = 9;
             let _board_size = state.board.width * state.board.height;
             let mut game_root = GameStateNode {game_state: state, children: None, cost: 0};
             build_tree(&mut game_root, desired_depth);
+            evaluate_costs(&mut game_root);
 
             let path_to_success = astar(
                 &game_root,
@@ -460,7 +460,7 @@ fn handle_move(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Err
                     p.game_state.turn == turn + desired_depth -1
                     // p.game_state.you.len() == board_size as usize
                 } else {
-                    p.game_state.turn == turn + desired_depth - 1
+                    p.game_state.board.snakes.len() == 1 && p.game_state.board.snakes[0].id == p.game_state.you.id
                 }
                 );
 
