@@ -15,11 +15,11 @@ use serde_derive::{Deserialize, Serialize};
 //TODO: use clap or something to make a nicer interface for this
 static IP: &str = "0.0.0.0";
 static PORT: &str = "80";
-//static SNAKE_COLOR: &str = "#51EBB0";
-//static SNAKE_HEAD: SnakeHead = SnakeHead::Evil;
-//static SNAKE_TAIL: SnakeTail = SnakeTail::SmallRattle;
+static SNAKE_COLOUR: &str = "#51EBB0";
+static SNAKE_HEAD: SnakeHead = SnakeHead::Evil;
+static SNAKE_TAIL: SnakeTail = SnakeTail::SmallRattle;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 enum SnakeHead {
     Beluga,
@@ -37,7 +37,7 @@ enum SnakeHead {
     Tongue,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 enum SnakeTail {
     BlockBum,
@@ -94,6 +94,9 @@ impl Coord {
                 y: self.y - 1,
             },
         ]
+    }
+    fn dist(&self, coord: &Coord) -> i32 {
+        (self.x - coord.x).abs() + (self.y - coord.y).abs()
     }
 }
 
@@ -167,11 +170,13 @@ struct MoveResponse {
     Move: Moves,
 }
 
+#[allow(dead_code)]
 fn random_color() -> String {
     let mut rng = rand::thread_rng();
     format!("#{:X}", rng.gen_range(0, 16_581_375))
 }
 
+#[allow(dead_code)]
 fn random_head() -> SnakeHead {
     let mut rng = rand::thread_rng();
     match rng.gen_range(0, 12) {
@@ -191,6 +196,7 @@ fn random_head() -> SnakeHead {
     }
 }
 
+#[allow(dead_code)]
 fn random_tail() -> SnakeTail {
     let mut rng = rand::thread_rng();
     match rng.gen_range(0, 11) {
@@ -214,68 +220,144 @@ fn handle_start(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Er
         .from_err()
         .and_then(|_inital_state: GameState| {
             Ok(HttpResponse::Ok().json(StartResponse {
-                color: random_color(),    // SNAKE_COLOUR,
-                head_type: random_head(), // SNAKE_HEAD,
-                tail_type: random_tail(), // SNAKE_TAIL,
+                color: String::from(SNAKE_COLOUR), // SNAKE_COLOUR,
+                head_type: SNAKE_HEAD.clone(),     // SNAKE_HEAD,
+                tail_type: SNAKE_TAIL.clone(),     // SNAKE_TAIL,
             }))
         })
         .responder()
+}
+
+fn big_snake_cost(board_size: i32, our_size: usize, coord: &Coord, snakes: &[Snake]) -> i32 {
+    let too_close = board_size / 3;
+    for snake in snakes.iter() {
+        if snake.len() >= our_size {
+            let dist_to_head = coord.dist(&snake.body[0]);
+            if dist_to_head <= too_close {
+                return 20 * (too_close - dist_to_head);
+            }
+        }
+    }
+    1
 }
 
 fn handle_move(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Error>> {
     req.json()
         .from_err()
         .and_then(|state: GameState| {
-            let should_eat = state
-                .board
-                .snakes
-                .iter()
-                .any(|snake| snake.id != state.you.id && snake.len() >= state.you.len() - 1);
-            println!("should_eat: {}", should_eat);
+            let mut state = state.clone();
+            loop {
+                let should_eat =
+                    state.board.snakes.iter().any(|snake| {
+                        snake.id != state.you.id && snake.len() >= state.you.len() - 1
+                    });
+                println!("should_eat: {}", should_eat);
 
-            if should_eat {
-                let best_food_path = state
-                    .board
-                    .food
-                    .iter()
-                    .filter_map(|food| {
-                        astar(
-                            food,
-                            |coord| {
-                                coord
-                                    .neighboors()
-                                    .iter()
-                                    .filter_map(|coord| {
-                                        if coord.x < 0
-                                            || coord.y < 0
-                                            || coord.x >= state.board.width
-                                            || coord.y >= state.board.height
-                                        {
-                                            None
-                                        } else {
-                                            for snake in state.board.snakes.iter() {
-                                                for snake_body_piece in snake.body.iter() {
-                                                    if coord == snake_body_piece
-                                                        && *coord != state.you.body[0]
-                                                    {
-                                                        return None;
+                if should_eat {
+                    let best_food_path = state
+                        .board
+                        .food
+                        .iter()
+                        .filter_map(|food| {
+                            astar(
+                                food,
+                                |coord| {
+                                    coord
+                                        .neighboors()
+                                        .iter()
+                                        .filter_map(|coord| {
+                                            if coord.x < 0
+                                                || coord.y < 0
+                                                || coord.x >= state.board.width
+                                                || coord.y >= state.board.height
+                                            {
+                                                None
+                                            } else {
+                                                for snake in state.board.snakes.iter() {
+                                                    for snake_body_piece in snake.body.iter() {
+                                                        if coord == snake_body_piece
+                                                            && *coord != state.you.body[0]
+                                                        {
+                                                            return None;
+                                                        }
                                                     }
                                                 }
+                                                Some((
+                                                    coord.clone(),
+                                                    big_snake_cost(
+                                                        state.board.width,
+                                                        state.you.len(),
+                                                        coord,
+                                                        &state.board.snakes,
+                                                    ),
+                                                ))
                                             }
-                                            Some((coord.clone(), 1))
-                                        }
-                                    })
-                                    .collect::<Vec<_>>()
-                            },
-                            |coord| {
-                                (coord.x - state.you.body[0].x).abs()
-                                    + (coord.y - state.you.body[0].y).abs()
-                            },
-                            |coord| *coord == state.you.body[0],
-                        )
+                                        })
+                                        .collect::<Vec<_>>()
+                                },
+                                |coord| coord.dist(&state.you.body[0]),
+                                |coord| *coord == state.you.body[0],
+                            )
+                        })
+                        .min_by_key(|path| path.1);
+                    if let Some((path, _)) = best_food_path {
+                        let next_coord = &path[path.len() - 2];
+                        let next_move: Moves = if next_coord.x > state.you.body[0].x {
+                            Moves::Right
+                        } else if next_coord.x < state.you.body[0].x {
+                            Moves::Left
+                        } else if next_coord.y > state.you.body[0].y {
+                            Moves::Down
+                        } else {
+                            Moves::Up
+                        };
+                        return Ok(HttpResponse::Ok().json(MoveResponse { Move: next_move }));
+                    }
+                }
+                let best_kill_path = state
+                    .board
+                    .snakes
+                    .iter()
+                    .filter_map(|enemy_snake| {
+                        if enemy_snake.len() < state.you.len() {
+                            astar(
+                                &enemy_snake.body[0],
+                                |coord| {
+                                    coord
+                                        .neighboors()
+                                        .iter()
+                                        .filter_map(|coord| {
+                                            if coord.x < 0
+                                                || coord.y < 0
+                                                || coord.x >= state.board.width
+                                                || coord.y >= state.board.height
+                                            {
+                                                None
+                                            } else {
+                                                for snake in state.board.snakes.iter() {
+                                                    for snake_body_piece in snake.body.iter() {
+                                                        if coord == snake_body_piece
+                                                            && *coord != state.you.body[0]
+                                                        {
+                                                            return None;
+                                                        }
+                                                    }
+                                                }
+                                                Some((coord.clone(), 1))
+                                            }
+                                        })
+                                        .collect::<Vec<_>>()
+                                },
+                                |coord| coord.dist(&state.you.body[0]),
+                                |coord| *coord == state.you.body[0],
+                            )
+                        } else {
+                            None
+                        }
                     })
                     .min_by_key(|path| path.1);
-                if let Some((path, _)) = best_food_path {
+
+                if let Some((path, _)) = best_kill_path {
                     let next_coord = &path[path.len() - 2];
                     let next_move: Moves = if next_coord.x > state.you.body[0].x {
                         Moves::Right
@@ -288,15 +370,14 @@ fn handle_move(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Err
                     };
                     return Ok(HttpResponse::Ok().json(MoveResponse { Move: next_move }));
                 }
-            }
-            let best_kill_path = state
-                .board
-                .snakes
-                .iter()
-                .filter_map(|enemy_snake| {
-                    if enemy_snake.len() < state.you.len() {
+
+                let chase_tail_path = state
+                    .board
+                    .snakes
+                    .iter()
+                    .filter_map(|snake| {
                         astar(
-                            &enemy_snake.body[0],
+                            &snake.body[snake.len() - 1],
                             |coord| {
                                 coord
                                     .neighboors()
@@ -323,103 +404,30 @@ fn handle_move(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Err
                                     })
                                     .collect::<Vec<_>>()
                             },
-                            |coord| {
-                                (coord.x - state.you.body[0].x).abs()
-                                    + (coord.y - state.you.body[0].y).abs()
-                            },
+                            |coord| coord.dist(&state.you.body[0]),
                             |coord| *coord == state.you.body[0],
                         )
+                    })
+                    .min_by_key(|path| path.1);
+
+                if let Some((path, _)) = chase_tail_path {
+                    let next_coord = &path[path.len() - 2];
+                    let next_move: Moves = if next_coord.x > state.you.body[0].x {
+                        Moves::Right
+                    } else if next_coord.x < state.you.body[0].x {
+                        Moves::Left
+                    } else if next_coord.y > state.you.body[0].y {
+                        Moves::Down
                     } else {
-                        None
-                    }
-                })
-                .min_by_key(|path| path.1);
-
-            if let Some((path, _)) = best_kill_path {
-                let next_coord = &path[path.len() - 2];
-                let next_move: Moves = if next_coord.x > state.you.body[0].x {
-                    Moves::Right
-                } else if next_coord.x < state.you.body[0].x {
-                    Moves::Left
-                } else if next_coord.y > state.you.body[0].y {
-                    Moves::Down
-                } else {
-                    Moves::Up
-                };
-                return Ok(HttpResponse::Ok().json(MoveResponse { Move: next_move }));
+                        Moves::Up
+                    };
+                    return Ok(HttpResponse::Ok().json(MoveResponse { Move: next_move }));
+                }
+                for snake in state.board.snakes.iter_mut() {
+                    snake.body.pop();
+                }
+                state.fix_board_to_self();
             }
-
-            let chase_tail_path = state
-                .board
-                .snakes
-                .iter()
-                .filter_map(|snake| {
-                    astar(
-                        &snake.body[snake.len() - 1],
-                        |coord| {
-                            coord
-                                .neighboors()
-                                .iter()
-                                .filter_map(|coord| {
-                                    if coord.x < 0
-                                        || coord.y < 0
-                                        || coord.x >= state.board.width
-                                        || coord.y >= state.board.height
-                                    {
-                                        None
-                                    } else {
-                                        for snake in state.board.snakes.iter() {
-                                            for snake_body_piece in snake.body.iter() {
-                                                if coord == snake_body_piece
-                                                    && *coord != state.you.body[0]
-                                                {
-                                                    return None;
-                                                }
-                                            }
-                                        }
-                                        Some((coord.clone(), 1))
-                                    }
-                                })
-                                .collect::<Vec<_>>()
-                        },
-                        |coord| {
-                            (coord.x - state.you.body[0].x).abs()
-                                + (coord.y - state.you.body[0].y).abs()
-                        },
-                        |coord| *coord == state.you.body[0],
-                    )
-                })
-                .min_by_key(|path| path.1);
-
-            if let Some((path, _)) = chase_tail_path {
-                let next_coord = &path[path.len() - 2];
-                let next_move: Moves = if next_coord.x > state.you.body[0].x {
-                    Moves::Right
-                } else if next_coord.x < state.you.body[0].x {
-                    Moves::Left
-                } else if next_coord.y > state.you.body[0].y {
-                    Moves::Down
-                } else {
-                    Moves::Up
-                };
-                return Ok(HttpResponse::Ok().json(MoveResponse { Move: next_move }));
-            }
-            // let path_to_success = astar(
-            //     &game_root,
-            //     |p| match &p.children {
-            //         Some(children) => children.iter().map(|child| (child.clone(), child.cost)).collect(),
-            //         None => vec![]
-            //     },
-            //     |_| 1,
-            //     |p| if num_snakes == 1 {
-            //         p.game_state.turn == turn + desired_depth -1
-            //         // p.game_state.you.len() == board_size as usize
-            //     } else {
-            //         p.game_state.board.snakes.len() == 1 && p.game_state.board.snakes[0].id == p.game_state.you.id
-            //     }
-            //     );
-
-            Ok(HttpResponse::Ok().json(MoveResponse { Move: Moves::Right }))
         })
         .responder()
 }
