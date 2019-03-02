@@ -245,12 +245,15 @@ fn handle_move(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Err
     req.json()
         .from_err()
         .and_then(|state: GameState| {
+            if state.board.snakes.len() == 1 && state.board.snakes[0].len() == 1 {
+                return Ok(HttpResponse::Ok().json(MoveResponse { Move: Moves::Up }));
+            }
             let mut state = state.clone();
             loop {
                 let should_eat =
                     state.board.snakes.iter().any(|snake| {
                         snake.id != state.you.id && snake.len() >= state.you.len() - 1
-                    });
+                    }) || state.board.snakes.len() == 1;
                 println!("should_eat: {}", should_eat);
 
                 if should_eat {
